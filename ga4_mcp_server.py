@@ -6,26 +6,70 @@ from google.analytics.data_v1beta.types import (
 import os
 import sys
 import json
+import base64
+import tempfile
 
-# Configuration from environment variables
-CREDENTIALS_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+def setup_credentials():
+    """Setup Google Analytics credentials from environment variables"""
+
+    # Method 1: Base64 encoded JSON credential (GOOGLE_APPLICATION_CREDENTIALS)
+    if creds_b64 := os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+        # Se sembra base64 (non inizia con / o finisce con .json)
+        if not creds_b64.startswith('/') and not creds_b64.endswith('.json'):
+            try:
+                print(f"Decoding base64 credentials from GOOGLE_APPLICATION_CREDENTIALS", file=sys.stderr)
+                creds_json = base64.b64decode(creds_b64).decode('utf-8')
+                # Write to temporary file
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                    f.write(creds_json)
+                    temp_path = f.name
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_path
+                print(f"✅ Loaded credentials from GOOGLE_APPLICATION_CREDENTIALS (base64) to {temp_path}", file=sys.stderr)
+                return temp_path
+            except Exception as e:
+                print(f"❌ Failed to decode base64 credentials: {e}", file=sys.stderr)
+                return None
+        else:
+            # It's a file path
+            if os.path.exists(creds_b64):
+                print(f"✅ Using existing credentials file: {creds_b64}", file=sys.stderr)
+                return creds_b64
+            else:
+                print(f"❌ Credentials file not found: {creds_b64}", file=sys.stderr)
+                return None
+
+    # Method 2: Alternative environment variable for base64
+    elif creds_b64 := os.getenv("GOOGLE_CREDENTIALS_JSON"):
+        try:
+            print(f"Decoding base64 credentials from GOOGLE_CREDENTIALS_JSON", file=sys.stderr)
+            creds_json = base64.b64decode(creds_b64).decode('utf-8')
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                f.write(creds_json)
+                temp_path = f.name
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_path
+            print(f"✅ Loaded credentials from GOOGLE_CREDENTIALS_JSON (base64) to {temp_path}", file=sys.stderr)
+            return temp_path
+        except Exception as e:
+            print(f"❌ Failed to decode base64 credentials: {e}", file=sys.stderr)
+            return None
+
+    else:
+        print("❌ No Google credentials found. Set GOOGLE_APPLICATION_CREDENTIALS or GOOGLE_CREDENTIALS_JSON", file=sys.stderr)
+        return None
+
+# Setup credentials
+CREDENTIALS_PATH = setup_credentials()
 GA4_PROPERTY_ID = os.getenv("GA4_PROPERTY_ID")
 
 # Validate required environment variables
 if not CREDENTIALS_PATH:
-    print("ERROR: GOOGLE_APPLICATION_CREDENTIALS environment variable not set", file=sys.stderr)
-    print("Please set it to the path of your service account JSON file", file=sys.stderr)
+    print("ERROR: Unable to setup Google credentials", file=sys.stderr)
+    print("Please set GOOGLE_APPLICATION_CREDENTIALS environment variable with base64 encoded JSON", file=sys.stderr)
     sys.exit(1)
 
 if not GA4_PROPERTY_ID:
     print("ERROR: GA4_PROPERTY_ID environment variable not set", file=sys.stderr)
     print("Please set it to your GA4 property ID (e.g., 123456789)", file=sys.stderr)
-    sys.exit(1)
-
-# Validate credentials file exists
-if not os.path.exists(CREDENTIALS_PATH):
-    print(f"ERROR: Credentials file not found: {CREDENTIALS_PATH}", file=sys.stderr)
-    print("Please check the GOOGLE_APPLICATION_CREDENTIALS path", file=sys.stderr)
     sys.exit(1)
 
 # Initialize FastMCP
