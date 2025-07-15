@@ -9,6 +9,16 @@ import json
 import base64
 import tempfile
 
+# Aggiungi questi import per REST API
+from fastapi import FastAPI, Request, HTTPException, Header
+from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+import asyncio
+from typing import Optional
+import threading
+import time
+
 def setup_credentials():
     """Setup Google Analytics credentials from environment variables"""
 
@@ -74,6 +84,8 @@ if not GA4_PROPERTY_ID:
 
 # Initialize FastMCP
 mcp = FastMCP("Google Analytics 4")
+
+# ... [tutto il codice delle dimensioni e metriche rimane uguale] ...
 
 # Embedded GA4 Dimensions Data
 GA4_DIMENSIONS = {
@@ -641,6 +653,230 @@ def get_ga4_data(
             error_message += f" Details: {e.details()}"
         return {"error": error_message}
 
+# ====== NUOVA SEZIONE: REST API per Claude Desktop ======
+
+# Crea app FastAPI per REST API
+rest_app = FastAPI(title="GA4 MCP REST API", version="1.0.0")
+
+# Aggiungi CORS
+rest_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Stato delle sessioni (semplificato)
+sessions = {}
+
+@rest_app.get("/")
+async def root():
+    return {"message": "GA4 MCP Server is running", "status": "ok", "version": "1.0.0"}
+
+@rest_app.get("/health")
+async def health():
+    return {"status": "healthy", "timestamp": time.time()}
+
+@rest_app.post("/")
+async def mcp_endpoint(request: Request):
+    """Endpoint principale che gestisce tutte le richieste MCP"""
+    try:
+        data = await request.json()
+        method = data.get("method")
+        params = data.get("params", {})
+        msg_id = data.get("id", "unknown")
+
+        # Inizializzazione
+        if method == "initialize":
+            session_id = f"session_{int(time.time() * 1000)}"
+            sessions[session_id] = {"created": time.time()}
+
+            return {
+                "jsonrpc": "2.0",
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {
+                        "tools": {"listChanged": True},
+                        "resources": {"subscribe": False, "listChanged": True}
+                    },
+                    "serverInfo": {
+                        "name": "Google Analytics 4",
+                        "version": "1.0.0"
+                    }
+                },
+                "id": msg_id
+            }
+
+        # Lista strumenti
+        elif method == "tools/list":
+            return {
+                "jsonrpc": "2.0",
+                "result": {
+                    "tools": [
+                        {
+                            "name": "list_dimension_categories",
+                            "description": "List all available GA4 dimension categories with descriptions",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {},
+                                "required": []
+                            }
+                        },
+                        {
+                            "name": "list_metric_categories",
+                            "description": "List all available GA4 metric categories with descriptions",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {},
+                                "required": []
+                            }
+                        },
+                        {
+                            "name": "get_dimensions_by_category",
+                            "description": "Get all dimensions in a specific category with their descriptions",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "category": {
+                                        "type": "string",
+                                        "description": "Category name (e.g., 'time', 'geography', 'ecommerce')"
+                                    }
+                                },
+                                "required": ["category"]
+                            }
+                        },
+                        {
+                            "name": "get_metrics_by_category",
+                            "description": "Get all metrics in a specific category with their descriptions",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "category": {
+                                        "type": "string",
+                                        "description": "Category name (e.g., 'user_metrics', 'ecommerce_metrics')"
+                                    }
+                                },
+                                "required": ["category"]
+                            }
+                        },
+                        {
+                            "name": "get_ga4_data",
+                            "description": "Retrieve GA4 metrics data broken down by the specified dimensions",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "dimensions": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                        "description": "List of GA4 dimensions",
+                                        "default": ["date"]
+                                    },
+                                    "metrics": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                        "description": "List of GA4 metrics",
+                                        "default": ["totalUsers", "newUsers"]
+                                    },
+                                    "date_range_start": {
+                                        "type": "string",
+                                        "description": "Start date (YYYY-MM-DD or relative like '7daysAgo')",
+                                        "default": "7daysAgo"
+                                    },
+                                    "date_range_end": {
+                                        "type": "string",
+                                        "description": "End date (YYYY-MM-DD or relative like 'yesterday')",
+                                        "default": "yesterday"
+                                    },
+                                    "dimension_filter": {
+                                        "type": "object",
+                                        "description": "Optional dimension filter (GA4 FilterExpression)"
+                                    }
+                                },
+                                "required": []
+                            }
+                        }
+                    ]
+                },
+                "id": msg_id
+            }
+
+        # Chiamata strumenti
+        elif method == "tools/call":
+            tool_name = params.get("name")
+            tool_args = params.get("arguments", {})
+
+            try:
+                # Chiama la funzione appropriata
+                if tool_name == "list_dimension_categories":
+                    result = list_dimension_categories()
+                elif tool_name == "list_metric_categories":
+                    result = list_metric_categories()
+                elif tool_name == "get_dimensions_by_category":
+                    result = get_dimensions_by_category(tool_args.get("category"))
+                elif tool_name == "get_metrics_by_category":
+                    result = get_metrics_by_category(tool_args.get("category"))
+                elif tool_name == "get_ga4_data":
+                    result = get_ga4_data(
+                        dimensions=tool_args.get("dimensions", ["date"]),
+                        metrics=tool_args.get("metrics", ["totalUsers", "newUsers"]),
+                        date_range_start=tool_args.get("date_range_start", "7daysAgo"),
+                        date_range_end=tool_args.get("date_range_end", "yesterday"),
+                        dimension_filter=tool_args.get("dimension_filter")
+                    )
+                else:
+                    return {
+                        "jsonrpc": "2.0",
+                        "error": {
+                            "code": -32601,
+                            "message": f"Unknown tool: {tool_name}"
+                        },
+                        "id": msg_id
+                    }
+
+                return {
+                    "jsonrpc": "2.0",
+                    "result": {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": json.dumps(result, indent=2)
+                            }
+                        ]
+                    },
+                    "id": msg_id
+                }
+
+            except Exception as e:
+                return {
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32000,
+                        "message": f"Tool execution error: {str(e)}"
+                    },
+                    "id": msg_id
+                }
+
+        else:
+            return {
+                "jsonrpc": "2.0",
+                "error": {
+                    "code": -32601,
+                    "message": f"Unknown method: {method}"
+                },
+                "id": msg_id
+            }
+
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32700,
+                "message": f"Parse error: {str(e)}"
+            },
+            "id": "error"
+        }
+
 def main():
     """Main entry point for the MCP server"""
     import argparse
@@ -652,15 +888,24 @@ def main():
                         help='Host to bind to (default: 0.0.0.0)')
     parser.add_argument('--port', type=int, default=8000,
                         help='Port to bind to (default: 8000)')
+    parser.add_argument('--rest-only', action='store_true',
+                        help='Run only REST API (no MCP)')
 
     args = parser.parse_args()
 
-    if args.transport == 'stdio':
+    if args.rest_only:
+        # Esegui solo REST API
+        print(f"Starting GA4 REST API only on {args.host}:{args.port}...", file=sys.stderr)
+        uvicorn.run(rest_app, host=args.host, port=args.port)
+    elif args.transport == 'stdio':
         print("Starting GA4 MCP server with stdio transport...", file=sys.stderr)
         mcp.run(transport="stdio")
     else:
-        print(f"Starting GA4 MCP server with HTTP transport on{args.host}:{args.port}...", file=sys.stderr)
-        mcp.run(transport="http", host=args.host, port=args.port)
+        print(f"Starting GA4 MCP server with HTTP transport on {args.host}:{args.port}...", file=sys.stderr)
+
+        # Esegui solo REST API (per Render)
+        # FastMCP HTTP ha problemi con le sessioni, quindi usiamo solo REST
+        uvicorn.run(rest_app, host=args.host, port=args.port)
 
 # Start the server when run directly
 if __name__ == "__main__":
