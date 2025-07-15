@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ga4-analytics": {
+      "command": "/path/to/your/ga4-mcp-server/venv/bin/python",
+      "args": ["/path/to/your/ga4-mcp-server/ga4_mcp_server.py"],
+      "env": {
+        "GOOGLE_APPLICATION_CREDENTIALS": "/path/to/your/service-account-key.json",
+        "GA4_PROPERTY_ID": "your-property-id-here"
+      }
+    }
+  }
+}

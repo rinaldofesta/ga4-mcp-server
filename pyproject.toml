@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "google-analytics-mcp"
+version = "1.0.11"
+description = "Google Analytics 4 MCP Server - Access GA4 data in Claude, Cursor and other MCP clients"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Rinaldo Festa"}
+]
+requires-python = ">=3.10"
+dependencies = [
+    "fastmcp>=2.0.0",
+    "google-analytics-data>=0.16.0",
+]
+keywords = ["google-analytics", "mcp", "ai-assistant", "analytics", "ga4", "claude", "cursor", "windsurf"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.urls]
+Homepage = "https://github.com/rinaldofesta/ga4-mcp"
+Repository = "https://github.com/rinaldofesta/ga4-mcp"
+
+[project.scripts]
+ga4-mcp-server = "ga4_mcp_server:main"  # Updated entry point name
+
+[tool.setuptools]
+# Include both the Python module and JSON files
+py-modules = ["ga4_mcp_server"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+# More specific pattern for single module with data files
+ga4_mcp_server = ["*.json"]
+# Alternative pattern that should work
+"*" = ["ga4_dimensions_json.json", "ga4_metrics_json.json"]
