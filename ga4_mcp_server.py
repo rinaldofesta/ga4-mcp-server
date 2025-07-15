@@ -208,12 +208,18 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    """Root endpoint"""
-    return {"message": "GA4 MCP Server is running", "status": "ok", "version": "1.0.0"}
+    """Root endpoint - also supports HEAD for monitoring"""
+    return {"message": "GA4 MCP Server is running", "status": "ok", "version": "1.0.0", "timestamp": time.time()}
+
+@app.head("/")
+async def root_head():
+    """Root endpoint HEAD request"""
+    return {"message": "GA4 MCP Server is running", "status": "ok", "version": "1.0.0", "timestamp": time.time()}
 
 @app.get("/health")
+@app.head("/health")
 async def health():
-    """Health check endpoint"""
+    """Health check endpoint - supports both GET and HEAD"""
     return {"status": "healthy", "timestamp": time.time()}
 
 @app.post("/")
@@ -342,15 +348,21 @@ def main():
             print("Server will continue, but GA4 calls may fail", file=sys.stderr)
 
         # Run server with optimized settings
-        uvicorn.run(
-            app,
-            host=args.host,
-            port=args.port,
-            timeout_keep_alive=60,
-            timeout_graceful_shutdown=30,
-            access_log=False,  # Disable for performance
-            log_level="info"
-        )
+        try:
+            uvicorn.run(
+                app,
+                host=args.host,
+                port=args.port,
+                timeout_keep_alive=60,
+                timeout_graceful_shutdown=30,
+                access_log=False,  # Disable for performance
+                log_level="info"
+            )
+        except Exception as e:
+            print(f"❌ Server crashed: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()
